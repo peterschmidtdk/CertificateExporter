@@ -1,8 +1,10 @@
 <#
 .SYNOPSIS
-    CertStoreExporter - GUI tool to export a certificate (User/Computer Personal) to PFX
-    and optionally generate Linux-ready files using OpenSSL.
-    Also supports converting an existing PFX to Linux files.
+    CertificateExporter - Windows GUI tool to export certificates from Windows Certificate Store
+    and optionally generate Linux-ready TLS files using OpenSSL.
+
+.FILE
+    Start-CertificateExporter-GUI.ps1
 
 .DESCRIPTION
     This WinForms tool:
@@ -18,22 +20,19 @@
          - <name>-fullchain.cer
       5) Can also convert an existing PFX to the same set
 
+.NOTES
+    Recommended to run as Administrator if exporting from LocalMachine\My.
+
 .VERSION
-    1.14 - Added UI label explaining output naming rules.
-           Removed duplicate OpenSSL Browse click handler.
-           Preserves:
-             - CN-based export folder naming (.\<CN>\)
-             - Robust overwrite/timestamp prompt (Yes/No/Cancel)
-             - Progress + verbose logging
-             - OpenSSL arg concatenation fix
-             - Required extensions:
-                 cert = .pem, key = .key, chain/fullchain = .cer
+    1.16 - Renamed tool to CertificateExporter.
+           Updated recommended script filename to Start-CertificateExporter-GUI.ps1.
+           Ensured logs always go to .\Logs and cleaned event wiring.
 
 .AUTHOR
-    Peter
+    Peter Schmidt (blog: msdigest.net)
 
 .LAST UPDATED
-    2025-12-10
+    2025-12-11
 #>
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -42,18 +41,30 @@ Add-Type -AssemblyName System.Drawing
 # ----------------------------
 # Configuration
 # ----------------------------
-$ScriptName    = "CertStoreExporter"
-$ScriptVersion = "1.14"
-$LogFile       = ".\CertStoreExporter.log"
+$ScriptName    = "CertificateExporter"
+$ScriptVersion = "1.16"
+
+# Logs folder config
+$LogDir  = Join-Path (Get-Location).Path "Logs"
+$LogFile = Join-Path $LogDir "$ScriptName.log"
 
 # ----------------------------
 # Logging
 # ----------------------------
+function Ensure-LogFolder {
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+        }
+    } catch {}
+}
+
 function Initialize-Log {
+    Ensure-LogFolder
     try {
         if (Test-Path $LogFile) {
             $stamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
-            $arch  = [IO.Path]::ChangeExtension($LogFile, "$stamp.log")
+            $arch  = Join-Path $LogDir "$ScriptName-$stamp.log"
             Move-Item $LogFile $arch -Force -ErrorAction SilentlyContinue
         }
 
@@ -78,13 +89,10 @@ Initialize-Log
 # ----------------------------
 function Get-CommonNameFromSubject {
     param([string]$Subject)
-
     if ([string]::IsNullOrWhiteSpace($Subject)) { return $null }
 
     $m = [regex]::Match($Subject, '(?i)\bCN\s*=\s*([^,]+)')
-    if ($m.Success) {
-        return $m.Groups[1].Value.Trim()
-    }
+    if ($m.Success) { return $m.Groups[1].Value.Trim() }
     return $null
 }
 
@@ -97,7 +105,6 @@ function Remove-InvalidFileNameChars {
 
     $safe = $safe.Trim().TrimEnd(".")
     if ([string]::IsNullOrWhiteSpace($safe)) { return $null }
-
     return $safe
 }
 
@@ -153,7 +160,7 @@ function Add-TimestampToPath {
 }
 
 # ----------------------------
-# Overwrite / Timestamp / Cancel (robust MessageBox)
+# Overwrite / Timestamp / Cancel
 # ----------------------------
 function Ask-OverwriteOrTimestamp {
     param(
@@ -183,9 +190,6 @@ function Ask-OverwriteOrTimestamp {
     }
 }
 
-# ----------------------------
-# Ensure safe file path for single-file exports (PFX)
-# ----------------------------
 function Get-SafeExportPath {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -205,25 +209,20 @@ function Get-SafeExportPath {
 }
 
 # ----------------------------
-# PEM set collision handling (REQUIRED EXTENSIONS)
+# Linux set collision handling (extensions per requirement)
 # ----------------------------
-function Resolve-PemSetPaths {
+function Resolve-LinuxSetPaths {
     param(
         [Parameter(Mandatory)][string]$OutputDir,
         [Parameter(Mandatory)][string]$BaseName
     )
 
-    # Required output extensions:
-    # leaf cert = .pem
-    # private key = .key
-    # chain = .cer
-    # fullchain = .cer
-    $certPem      = Join-Path $OutputDir "$BaseName-cert.pem"
-    $keyPem       = Join-Path $OutputDir "$BaseName-privkey.key"
-    $chainPem     = Join-Path $OutputDir "$BaseName-chain.cer"
-    $fullchainPem = Join-Path $OutputDir "$BaseName-fullchain.cer"
+    $certFile      = Join-Path $OutputDir "$BaseName-cert.pem"
+    $keyFile       = Join-Path $OutputDir "$BaseName-privkey.key"
+    $chainFile     = Join-Path $OutputDir "$BaseName-chain.cer"
+    $fullchainFile = Join-Path $OutputDir "$BaseName-fullchain.cer"
 
-    $existing = @($certPem, $keyPem, $chainPem, $fullchainPem) | Where-Object { Test-Path $_ }
+    $existing = @($certFile, $keyFile, $chainFile, $fullchainFile) | Where-Object { Test-Path $_ }
 
     if ($existing.Count -gt 0) {
         $choice = Ask-OverwriteOrTimestamp -TargetLabel "Certificate export set" -ExistingPath $OutputDir
@@ -235,24 +234,24 @@ function Resolve-PemSetPaths {
             $ts = (Get-Date).ToString("yyyyMMdd-HHmmss")
             $BaseName = "$BaseName-$ts"
 
-            $certPem      = Join-Path $OutputDir "$BaseName-cert.pem"
-            $keyPem       = Join-Path $OutputDir "$BaseName-privkey.key"
-            $chainPem     = Join-Path $OutputDir "$BaseName-chain.cer"
-            $fullchainPem = Join-Path $OutputDir "$BaseName-fullchain.cer"
+            $certFile      = Join-Path $OutputDir "$BaseName-cert.pem"
+            $keyFile       = Join-Path $OutputDir "$BaseName-privkey.key"
+            $chainFile     = Join-Path $OutputDir "$BaseName-chain.cer"
+            $fullchainFile = Join-Path $OutputDir "$BaseName-fullchain.cer"
         }
     }
 
     return [pscustomobject]@{
         BaseName     = $BaseName
-        CertPem      = $certPem
-        KeyPem       = $keyPem
-        ChainPem     = $chainPem
-        FullchainPem = $fullchainPem
+        CertFile     = $certFile
+        KeyFile      = $keyFile
+        ChainFile    = $chainFile
+        FullchainFile= $fullchainFile
     }
 }
 
 # ----------------------------
-# GUI Password Dialog (with confirm)
+# GUI Password Dialog
 # ----------------------------
 function Get-PfxPasswordDialog {
     param(
@@ -397,7 +396,7 @@ function Get-OpenSslPath {
 }
 
 # ----------------------------
-# Load certs
+# Read Personal stores
 # ----------------------------
 function Get-PersonalStoreCerts {
     $stores = @(
@@ -452,7 +451,7 @@ function Export-SelectedCertToPfx {
 }
 
 # ----------------------------
-# Run OpenSSL with capture
+# OpenSSL runner
 # ----------------------------
 function Invoke-OpenSsl {
     param(
@@ -479,7 +478,7 @@ function Invoke-OpenSsl {
 # ----------------------------
 # Convert PFX -> Linux files
 # ----------------------------
-function Convert-PfxToLinuxPem {
+function Convert-PfxToLinuxFiles {
     param(
         [Parameter(Mandatory)][string]$OpenSsl,
         [Parameter(Mandatory)][string]$PfxFile,
@@ -488,7 +487,7 @@ function Convert-PfxToLinuxPem {
         [Parameter(Mandatory)][string]$BaseName
     )
 
-    Write-Log "Convert-PfxToLinuxPem start. PfxFile=$PfxFile OutputDir=$OutputDir BaseName=$BaseName" "INFO"
+    Write-Log "Convert-PfxToLinuxFiles start. PfxFile=$PfxFile OutputDir=$OutputDir BaseName=$BaseName" "INFO"
 
     if (!(Test-Path $OpenSsl)) { throw "OpenSSL not found at: $OpenSsl" }
     if (!(Test-Path $PfxFile)) { throw "PFX file not found: $PfxFile" }
@@ -497,13 +496,13 @@ function Convert-PfxToLinuxPem {
         New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
     }
 
-    $resolved = Resolve-PemSetPaths -OutputDir $OutputDir -BaseName $BaseName
+    $resolved = Resolve-LinuxSetPaths -OutputDir $OutputDir -BaseName $BaseName
     if (-not $resolved) { throw "Certificate export cancelled by user." }
 
-    $certFile      = $resolved.CertPem
-    $keyFile       = $resolved.KeyPem
-    $chainFile     = $resolved.ChainPem
-    $fullchainFile = $resolved.FullchainPem
+    $certFile      = $resolved.CertFile
+    $keyFile       = $resolved.KeyFile
+    $chainFile     = $resolved.ChainFile
+    $fullchainFile = $resolved.FullchainFile
 
     # Convert SecureString password for -passin usage
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
@@ -513,18 +512,15 @@ function Convert-PfxToLinuxPem {
     $passArgs = @("-passin", "pass:$plain")
 
     # 1) Leaf cert -> .pem
-    $args = @("pkcs12","-in",$PfxFile,"-clcerts","-nokeys","-out",$certFile)
-    $args += $passArgs
+    $args = @("pkcs12","-in",$PfxFile,"-clcerts","-nokeys","-out",$certFile) + $passArgs
     Invoke-OpenSsl -OpenSsl $OpenSsl -Args $args | Out-Null
 
-    # 2) Private key -> .key (PEM-encoded content)
-    $args = @("pkcs12","-in",$PfxFile,"-nocerts","-nodes","-out",$keyFile)
-    $args += $passArgs
+    # 2) Private key -> .key
+    $args = @("pkcs12","-in",$PfxFile,"-nocerts","-nodes","-out",$keyFile) + $passArgs
     Invoke-OpenSsl -OpenSsl $OpenSsl -Args $args | Out-Null
 
     # 3) Chain -> .cer
-    $args = @("pkcs12","-in",$PfxFile,"-cacerts","-nokeys","-out",$chainFile)
-    $args += $passArgs
+    $args = @("pkcs12","-in",$PfxFile,"-cacerts","-nokeys","-out",$chainFile) + $passArgs
     Invoke-OpenSsl -OpenSsl $OpenSsl -Args $args | Out-Null
 
     # 4) Full chain -> .cer (leaf + chain)
@@ -543,17 +539,17 @@ function Convert-PfxToLinuxPem {
     Write-Log "Linux file generation completed: cert=$certFile key=$keyFile chain=$chainFile fullchain=$fullchainFile" "INFO"
 
     return [pscustomobject]@{
-        CertPem            = $certFile
-        PrivateKey         = $keyFile
-        ChainPem           = $chainFile
-        FullchainPem       = $fullchainFile
+        CertFile           = $certFile
+        PrivateKeyFile     = $keyFile
+        ChainFile          = $chainFile
+        FullchainFile      = $fullchainFile
         OutputDir          = $OutputDir
         ChainLikelyMissing = $chainLikelyMissing
     }
 }
 
 # ----------------------------
-# Load PFX cert to extract CN (Convert Existing flow)
+# Load cert from PFX (for CN)
 # ----------------------------
 function Get-CertFromPfxFile {
     param(
@@ -580,7 +576,7 @@ function Get-CertFromPfxFile {
 }
 
 # ----------------------------
-# UI Construction
+# UI
 # ----------------------------
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "$ScriptName v$ScriptVersion"
@@ -593,7 +589,6 @@ $lblInfo.AutoSize = $true
 $lblInfo.Location = New-Object System.Drawing.Point(12, 12)
 $form.Controls.Add($lblInfo)
 
-# ListView
 $list = New-Object System.Windows.Forms.ListView
 $list.View = "Details"
 $list.FullRowSelect = $true
@@ -617,7 +612,6 @@ $list.Size = New-Object System.Drawing.Size(910, 380)
 }
 $form.Controls.Add($list)
 
-# OpenSSL path controls
 $lblOpenSsl = New-Object System.Windows.Forms.Label
 $lblOpenSsl.Text = "OpenSSL path:"
 $lblOpenSsl.AutoSize = $true
@@ -635,7 +629,6 @@ $btnBrowseOpenSsl.Location = New-Object System.Drawing.Point(770, 430)
 $btnBrowseOpenSsl.Size = New-Object System.Drawing.Size(75, 28)
 $form.Controls.Add($btnBrowseOpenSsl)
 
-# Buttons
 $btnRefresh = New-Object System.Windows.Forms.Button
 $btnRefresh.Text = "Refresh List"
 $btnRefresh.Location = New-Object System.Drawing.Point(12, 475)
@@ -660,7 +653,6 @@ $btnConvertExisting.Location = New-Object System.Drawing.Point(630, 475)
 $btnConvertExisting.Size = New-Object System.Drawing.Size(292, 35)
 $form.Controls.Add($btnConvertExisting)
 
-# NEW: Naming rules info label
 $lblNamingRules = New-Object System.Windows.Forms.Label
 $lblNamingRules.AutoSize = $false
 $lblNamingRules.Size = New-Object System.Drawing.Size(910, 50)
@@ -668,11 +660,10 @@ $lblNamingRules.Location = New-Object System.Drawing.Point(12, 515)
 $lblNamingRules.ForeColor = [System.Drawing.Color]::DimGray
 $lblNamingRules.Text =
     "Linux export naming rules: Folder = Common Name (CN). " +
-    "Files: <name>-cert.pem (leaf cert), <name>-privkey.key (private key), " +
+    "Files: <name>-cert.pem (leaf), <name>-privkey.key (private key), " +
     "<name>-chain.cer (intermediates), <name>-fullchain.cer (leaf+intermediates)."
 $form.Controls.Add($lblNamingRules)
 
-# Progress bar
 $progress = New-Object System.Windows.Forms.ProgressBar
 $progress.Location = New-Object System.Drawing.Point(12, 570)
 $progress.Size = New-Object System.Drawing.Size(910, 18)
@@ -687,7 +678,6 @@ $lblProgress.AutoSize = $true
 $lblProgress.Location = New-Object System.Drawing.Point(12, 592)
 $form.Controls.Add($lblProgress)
 
-# Status box
 $txtStatus = New-Object System.Windows.Forms.TextBox
 $txtStatus.Multiline = $true
 $txtStatus.ReadOnly = $true
@@ -696,7 +686,6 @@ $txtStatus.Location = New-Object System.Drawing.Point(12, 615)
 $txtStatus.Size = New-Object System.Drawing.Size(910, 110)
 $form.Controls.Add($txtStatus)
 
-# Footer with version
 $lblFooter = New-Object System.Windows.Forms.Label
 $lblFooter.Text = "$ScriptName v$ScriptVersion"
 $lblFooter.AutoSize = $true
@@ -705,7 +694,7 @@ $lblFooter.Location = New-Object System.Drawing.Point(12, 735)
 $form.Controls.Add($lblFooter)
 
 # ----------------------------
-# UI Helper functions
+# UI Helpers
 # ----------------------------
 function Write-Status {
     param([string]$msg)
@@ -725,11 +714,11 @@ function Set-Progress {
 
 function Set-UiBusy {
     param([bool]$Busy)
-    $btnRefresh.Enabled          = -not $Busy
-    $btnExport.Enabled           = -not $Busy
-    $btnExportPfxOnly.Enabled    = -not $Busy
-    $btnConvertExisting.Enabled  = -not $Busy
-    $btnBrowseOpenSsl.Enabled    = -not $Busy
+    $btnRefresh.Enabled         = -not $Busy
+    $btnExport.Enabled          = -not $Busy
+    $btnExportPfxOnly.Enabled   = -not $Busy
+    $btnConvertExisting.Enabled = -not $Busy
+    $btnBrowseOpenSsl.Enabled   = -not $Busy
 }
 
 function Warn-IfChainMissingUI {
@@ -746,12 +735,6 @@ function Warn-IfChainMissingUI {
         ) | Out-Null
     }
 }
-
-# ----------------------------
-# Auto-detect OpenSSL
-# ----------------------------
-$autoOpenSsl = Get-OpenSslPath
-if ($autoOpenSsl) { $txtOpenSsl.Text = $autoOpenSsl }
 
 # ----------------------------
 # Load cert list
@@ -775,22 +758,6 @@ function Load-CertList {
     Write-Status "Loaded $($certs.Count) certificates from User/Computer Personal stores."
     Set-Progress -Value 0 -Text "Idle."
 }
-
-# ----------------------------
-# Browse OpenSSL (single handler)
-# ----------------------------
-$btnBrowseOpenSsl.Add_Click({
-    $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Filter = "OpenSSL (openssl.exe)|openssl.exe|All files (*.*)|*.*"
-    $dlg.InitialDirectory = (Get-Location).Path
-    if ($dlg.ShowDialog() -eq "OK") {
-        $txtOpenSsl.Text = $dlg.FileName
-        Write-Status "OpenSSL path set to: $($dlg.FileName)"
-    }
-})
-
-# Refresh
-$btnRefresh.Add_Click({ Load-CertList })
 
 # ----------------------------
 # Selection validation
@@ -823,11 +790,23 @@ function Get-SelectedCertOrWarn {
 }
 
 # ----------------------------
-# Button: Export Selected → PFX only
+# Event wiring
 # ----------------------------
+$btnRefresh.Add_Click({ Load-CertList })
+
+$btnBrowseOpenSsl.Add_Click({
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = "OpenSSL (openssl.exe)|openssl.exe|All files (*.*)|*.*"
+    $dlg.InitialDirectory = (Get-Location).Path
+    if ($dlg.ShowDialog() -eq "OK") {
+        $txtOpenSsl.Text = $dlg.FileName
+        Write-Status "OpenSSL path set to: $($dlg.FileName)"
+    }
+})
+
+# Export Selected → PFX only
 $btnExportPfxOnly.Add_Click({
     Set-UiBusy -Busy $true
-
     try {
         Set-Progress -Value 0 -Text "Starting PFX export..."
 
@@ -835,7 +814,6 @@ $btnExportPfxOnly.Add_Click({
         if (-not $selected) { return }
 
         Set-Progress -Value 20 -Text "Choosing PFX output..."
-
         $save = New-Object System.Windows.Forms.SaveFileDialog
         $save.Filter = "PFX files (*.pfx)|*.pfx|All files (*.*)|*.*"
         $save.InitialDirectory = (Get-Location).Path
@@ -845,7 +823,6 @@ $btnExportPfxOnly.Add_Click({
         $save.FileName = "$safeName.pfx"
 
         if ($save.ShowDialog() -ne "OK") { return }
-
         $pfxPath = $save.FileName
 
         $pfxPath = Get-SafeExportPath -Path $pfxPath -Label "PFX file"
@@ -855,7 +832,6 @@ $btnExportPfxOnly.Add_Click({
         }
 
         Set-Progress -Value 40 -Text "Waiting for password input..."
-
         $pwd = Get-PfxPasswordDialog `
             -Title "PFX Export Password" `
             -Prompt "Create and confirm a password to protect the exported PFX:" `
@@ -869,8 +845,8 @@ $btnExportPfxOnly.Add_Click({
         Set-Progress -Value 70 -Text "Exporting certificate to PFX..."
         Write-Status "Exporting certificate from $($selected.Store) store..."
         Export-SelectedCertToPfx -CertPath $selected.Path -PfxFilePath $pfxPath -Password $pwd
-        Write-Status "PFX exported to: $pfxPath"
 
+        Write-Status "PFX exported to: $pfxPath"
         Set-Progress -Value 100 -Text "Done."
 
         [System.Windows.Forms.MessageBox]::Show(
@@ -894,12 +870,9 @@ $btnExportPfxOnly.Add_Click({
     }
 })
 
-# ----------------------------
-# Button: Export Selected → PFX → Linux files
-# ----------------------------
+# Export Selected → PFX → Linux files
 $btnExport.Add_Click({
     Set-UiBusy -Busy $true
-
     try {
         Set-Progress -Value 0 -Text "Starting export..."
 
@@ -918,7 +891,6 @@ $btnExport.Add_Click({
         }
 
         Set-Progress -Value 20 -Text "Choosing PFX output..."
-
         $save = New-Object System.Windows.Forms.SaveFileDialog
         $save.Filter = "PFX files (*.pfx)|*.pfx|All files (*.*)|*.*"
         $save.InitialDirectory = (Get-Location).Path
@@ -928,7 +900,6 @@ $btnExport.Add_Click({
         $save.FileName = "$safeName.pfx"
 
         if ($save.ShowDialog() -ne "OK") { return }
-
         $pfxPath = $save.FileName
 
         $pfxPath = Get-SafeExportPath -Path $pfxPath -Label "PFX file"
@@ -938,7 +909,6 @@ $btnExport.Add_Click({
         }
 
         Set-Progress -Value 35 -Text "Waiting for password input..."
-
         $pwd = Get-PfxPasswordDialog `
             -Title "PFX Export Password" `
             -Prompt "Create and confirm a password to protect the exported PFX:`r`n(This will also be used to generate Linux files.)" `
@@ -954,26 +924,22 @@ $btnExport.Add_Click({
         Export-SelectedCertToPfx -CertPath $selected.Path -PfxFilePath $pfxPath -Password $pwd
         Write-Status "PFX exported to: $pfxPath"
 
-        # Folder based on CN
-        $fallback = if ($selected.FriendlyName) { $selected.FriendlyName } else { $selected.Thumbprint }
+        $fallback   = if ($selected.FriendlyName) { $selected.FriendlyName } else { $selected.Thumbprint }
         $folderName = Get-FolderNameForCert -CertObject $selected -FallbackName $fallback
-        $exportDir = Ensure-ExportFolder -FolderName $folderName
+        $exportDir  = Ensure-ExportFolder -FolderName $folderName
         Write-Status "Linux export folder: $exportDir"
 
-        # Base name for files = PFX base name
-        $baseName = [IO.Path]::GetFileNameWithoutExtension($pfxPath)
-        $baseName = Remove-InvalidFileNameChars -Name $baseName
+        $baseName = Remove-InvalidFileNameChars -Name ([IO.Path]::GetFileNameWithoutExtension($pfxPath))
         if (-not $baseName) { $baseName = "export" }
 
         Set-Progress -Value 75 -Text "Generating Linux files..."
-        $result = Convert-PfxToLinuxPem -OpenSsl $openSslPath -PfxFile $pfxPath -Password $pwd -OutputDir $exportDir -BaseName $baseName
+        $result = Convert-PfxToLinuxFiles -OpenSsl $openSslPath -PfxFile $pfxPath -Password $pwd -OutputDir $exportDir -BaseName $baseName
 
-        Set-Progress -Value 90 -Text "Finalizing outputs..."
         Write-Status "Created:"
-        Write-Status "  cert:      $($result.CertPem)"
-        Write-Status "  privkey:   $($result.PrivateKey)"
-        Write-Status "  chain:     $($result.ChainPem)"
-        Write-Status "  fullchain: $($result.FullchainPem)"
+        Write-Status "  cert:      $($result.CertFile)"
+        Write-Status "  privkey:   $($result.PrivateKeyFile)"
+        Write-Status "  chain:     $($result.ChainFile)"
+        Write-Status "  fullchain: $($result.FullchainFile)"
 
         Set-Progress -Value 100 -Text "Done."
         Warn-IfChainMissingUI -ResultObject $result
@@ -999,12 +965,9 @@ $btnExport.Add_Click({
     }
 })
 
-# ----------------------------
-# Button: Convert Existing PFX → Linux files
-# ----------------------------
+# Convert Existing PFX → Linux files
 $btnConvertExisting.Add_Click({
     Set-UiBusy -Busy $true
-
     try {
         Set-Progress -Value 0 -Text "Starting PFX conversion..."
 
@@ -1038,26 +1001,24 @@ $btnConvertExisting.Add_Click({
             return
         }
 
-        # Load cert for CN extraction
-        $pfxCert = Get-CertFromPfxFile -PfxFile $pfxPath -Password $pwd
+        $pfxCert  = Get-CertFromPfxFile -PfxFile $pfxPath -Password $pwd
         $fallback = [IO.Path]::GetFileNameWithoutExtension($pfxPath)
 
         $folderName = Get-FolderNameForCert -CertObject $pfxCert -FallbackName $fallback
-        $exportDir = Ensure-ExportFolder -FolderName $folderName
+        $exportDir  = Ensure-ExportFolder -FolderName $folderName
         Write-Status "Linux export folder: $exportDir"
 
         $baseName = Remove-InvalidFileNameChars -Name $fallback
         if (-not $baseName) { $baseName = "export" }
 
         Set-Progress -Value 75 -Text "Generating Linux files..."
-        $result = Convert-PfxToLinuxPem -OpenSsl $openSslPath -PfxFile $pfxPath -Password $pwd -OutputDir $exportDir -BaseName $baseName
+        $result = Convert-PfxToLinuxFiles -OpenSsl $openSslPath -PfxFile $pfxPath -Password $pwd -OutputDir $exportDir -BaseName $baseName
 
-        Set-Progress -Value 90 -Text "Finalizing outputs..."
         Write-Status "Created:"
-        Write-Status "  cert:      $($result.CertPem)"
-        Write-Status "  privkey:   $($result.PrivateKey)"
-        Write-Status "  chain:     $($result.ChainPem)"
-        Write-Status "  fullchain: $($result.FullchainPem)"
+        Write-Status "  cert:      $($result.CertFile)"
+        Write-Status "  privkey:   $($result.PrivateKeyFile)"
+        Write-Status "  chain:     $($result.ChainFile)"
+        Write-Status "  fullchain: $($result.FullchainFile)"
 
         Set-Progress -Value 100 -Text "Done."
         Warn-IfChainMissingUI -ResultObject $result
@@ -1084,16 +1045,10 @@ $btnConvertExisting.Add_Click({
 })
 
 # ----------------------------
-# OpenSSL Browse button already defined above
+# Startup
 # ----------------------------
-
-# ----------------------------
-# Auto-detect OpenSSL path into UI
-# ----------------------------
+$autoOpenSsl = Get-OpenSslPath
 if ($autoOpenSsl) { $txtOpenSsl.Text = $autoOpenSsl }
 
-# ----------------------------
-# Initial load + show UI
-# ----------------------------
 Load-CertList
 [void]$form.ShowDialog()
