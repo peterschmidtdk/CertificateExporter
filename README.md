@@ -1,2 +1,6 @@
 # CertStoreExporer
-GUI based PowerShell Tool to export certificates on Windows from the User Personal Certificate Store or from the Computer Personal Store. There is options to export to PFX file or to the Linux formats such as PEM file etc.
+This script provides a GUI tool for exporting certificates from the Personal store to PFX format and generating Linux-ready PEM files using OpenSSL. 
+It includes functions for finding OpenSSL, loading certificates, exporting to PFX, and converting to PEM format.
+
+# Requirements
+OpenSSL need to be installed on Windows.
