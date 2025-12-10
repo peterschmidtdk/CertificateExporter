@@ -3,7 +3,7 @@
 **CertificateExporter** is a lightweight Windows GUI tool that helps you export certificates from the Windows Certificate Store and prepare Linux-ready TLS files with consistent naming and safe export handling.
 
 ### Who it's for
-Targets IT Pros and admins who need a fast, repeatable way to move certificates from Windows environments to Linux-based services (NGINX, Apache, HAProxy, etc.).
+Targets IT Pros and admins who need a fast, repeatable way to move certificates from Windows environments to Linux-based services (NGINX, Apache, HAProxy, etc.) or just export a certificate to a .pfx file.
 
 ### Certificate sources
 Reads certificates from:
