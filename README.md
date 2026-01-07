@@ -1,6 +1,6 @@
 # CertificateExporter
 
-**CertificateExporter** is a lightweight Windows GUI tool that helps you export certificates from the Windows Certificate Store and prepare Linux-ready TLS files with consistent naming and safe export handling.
+**CertificateExporter** is a lightweight Windows GUI tool that helps you export certificates from the Windows Certificate Store and prepare Linux-ready PEM files with consistent naming and safe export handling.
 
 > Entry point script: **`Start-CertificateExporter-GUI.ps1`**
 
