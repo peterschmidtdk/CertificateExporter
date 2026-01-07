@@ -7,7 +7,7 @@
     Start-CertificateExporter-GUI.ps1
 
 .DESCRIPTION
-    This small powershell tool, run as a WinForms GUI based tool:
+    This WinForms tool:
       1) Enumerates certificates from:
          - Cert:\CurrentUser\My
          - Cert:\LocalMachine\My
@@ -24,15 +24,16 @@
     Recommended to run as Administrator if exporting from LocalMachine\My.
 
 .VERSION
-    1.16 - Renamed tool to CertificateExporter.
-           Updated recommended script filename to Start-CertificateExporter-GUI.ps1.
-           Ensured logs always go to .\Logs and cleaned event wiring.
+    1.17 - Added default OpenSSL path check for
+           C:\Program Files\OpenSSL-Win64\bin\openssl.exe
+           and a status/warning label under the OpenSSL path field.
+           Tool name: CertificateExporter, script name: Start-CertificateExporter-GUI.ps1.
 
 .AUTHOR
-    Peter Schmidt (blog: msdigest.net)
+    Peter Schmidt (msdigest.net)
 
 .LAST UPDATED
-    2025-12-11
+    2025-12-10
 #>
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -42,7 +43,7 @@ Add-Type -AssemblyName System.Drawing
 # Configuration
 # ----------------------------
 $ScriptName    = "CertificateExporter"
-$ScriptVersion = "1.16"
+$ScriptVersion = "1.17"
 
 # Logs folder config
 $LogDir  = Join-Path (Get-Location).Path "Logs"
@@ -242,11 +243,11 @@ function Resolve-LinuxSetPaths {
     }
 
     return [pscustomobject]@{
-        BaseName     = $BaseName
-        CertFile     = $certFile
-        KeyFile      = $keyFile
-        ChainFile    = $chainFile
-        FullchainFile= $fullchainFile
+        BaseName      = $BaseName
+        CertFile      = $certFile
+        KeyFile       = $keyFile
+        ChainFile     = $chainFile
+        FullchainFile = $fullchainFile
     }
 }
 
@@ -366,7 +367,7 @@ function Get-PfxPasswordDialog {
 }
 
 # ----------------------------
-# Find OpenSSL
+# Find OpenSSL (generic)
 # ----------------------------
 function Get-OpenSslPath {
     Write-Log "Attempting to locate openssl.exe via PATH and known locations." "DEBUG"
@@ -521,7 +522,7 @@ function Convert-PfxToLinuxFiles {
 
     # 3) Chain -> .cer
     $args = @("pkcs12","-in",$PfxFile,"-cacerts","-nokeys","-out",$chainFile) + $passArgs
-    Invoke-OpenSsl -OpenSsl $OpenSsl -Args $args | Out-Null
+    Invoke-OpenSsl -OpenSsl -OpenSsl $OpenSsl -Args $args | Out-Null
 
     # 4) Full chain -> .cer (leaf + chain)
     $certContent  = Get-Content -Path $certFile  -ErrorAction SilentlyContinue
@@ -629,34 +630,42 @@ $btnBrowseOpenSsl.Location = New-Object System.Drawing.Point(770, 430)
 $btnBrowseOpenSsl.Size = New-Object System.Drawing.Size(75, 28)
 $form.Controls.Add($btnBrowseOpenSsl)
 
+# NEW: OpenSSL status / warning label under the path
+$lblOpenSslStatus = New-Object System.Windows.Forms.Label
+$lblOpenSslStatus.AutoSize = $true
+$lblOpenSslStatus.Location = New-Object System.Drawing.Point(110, 460)
+$lblOpenSslStatus.ForeColor = [System.Drawing.Color]::DarkRed
+$lblOpenSslStatus.Text = ""
+$form.Controls.Add($lblOpenSslStatus)
+
 $btnRefresh = New-Object System.Windows.Forms.Button
 $btnRefresh.Text = "Refresh List"
-$btnRefresh.Location = New-Object System.Drawing.Point(12, 475)
+$btnRefresh.Location = New-Object System.Drawing.Point(12, 490)
 $btnRefresh.Size = New-Object System.Drawing.Size(120, 35)
 $form.Controls.Add($btnRefresh)
 
 $btnExportPfxOnly = New-Object System.Windows.Forms.Button
 $btnExportPfxOnly.Text = "Export Selected → PFX only"
-$btnExportPfxOnly.Location = New-Object System.Drawing.Point(140, 475)
+$btnExportPfxOnly.Location = New-Object System.Drawing.Point(140, 490)
 $btnExportPfxOnly.Size = New-Object System.Drawing.Size(200, 35)
 $form.Controls.Add($btnExportPfxOnly)
 
 $btnExport = New-Object System.Windows.Forms.Button
 $btnExport.Text = "Export Selected → PFX → Linux files"
-$btnExport.Location = New-Object System.Drawing.Point(350, 475)
+$btnExport.Location = New-Object System.Drawing.Point(350, 490)
 $btnExport.Size = New-Object System.Drawing.Size(270, 35)
 $form.Controls.Add($btnExport)
 
 $btnConvertExisting = New-Object System.Windows.Forms.Button
 $btnConvertExisting.Text = "Convert Existing PFX → Linux files"
-$btnConvertExisting.Location = New-Object System.Drawing.Point(630, 475)
+$btnConvertExisting.Location = New-Object System.Drawing.Point(630, 490)
 $btnConvertExisting.Size = New-Object System.Drawing.Size(292, 35)
 $form.Controls.Add($btnConvertExisting)
 
 $lblNamingRules = New-Object System.Windows.Forms.Label
 $lblNamingRules.AutoSize = $false
 $lblNamingRules.Size = New-Object System.Drawing.Size(910, 50)
-$lblNamingRules.Location = New-Object System.Drawing.Point(12, 515)
+$lblNamingRules.Location = New-Object System.Drawing.Point(12, 530)
 $lblNamingRules.ForeColor = [System.Drawing.Color]::DimGray
 $lblNamingRules.Text =
     "Linux export naming rules: Folder = Common Name (CN). " +
@@ -665,7 +674,7 @@ $lblNamingRules.Text =
 $form.Controls.Add($lblNamingRules)
 
 $progress = New-Object System.Windows.Forms.ProgressBar
-$progress.Location = New-Object System.Drawing.Point(12, 570)
+$progress.Location = New-Object System.Drawing.Point(12, 580)
 $progress.Size = New-Object System.Drawing.Size(910, 18)
 $progress.Minimum = 0
 $progress.Maximum = 100
@@ -675,15 +684,15 @@ $form.Controls.Add($progress)
 $lblProgress = New-Object System.Windows.Forms.Label
 $lblProgress.Text = "Idle."
 $lblProgress.AutoSize = $true
-$lblProgress.Location = New-Object System.Drawing.Point(12, 592)
+$lblProgress.Location = New-Object System.Drawing.Point(12, 602)
 $form.Controls.Add($lblProgress)
 
 $txtStatus = New-Object System.Windows.Forms.TextBox
 $txtStatus.Multiline = $true
 $txtStatus.ReadOnly = $true
 $txtStatus.ScrollBars = "Vertical"
-$txtStatus.Location = New-Object System.Drawing.Point(12, 615)
-$txtStatus.Size = New-Object System.Drawing.Size(910, 110)
+$txtStatus.Location = New-Object System.Drawing.Point(12, 625)
+$txtStatus.Size = New-Object System.Drawing.Size(910, 100)
 $form.Controls.Add($txtStatus)
 
 $lblFooter = New-Object System.Windows.Forms.Label
@@ -733,6 +742,24 @@ function Warn-IfChainMissingUI {
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Warning
         ) | Out-Null
+    }
+}
+
+# NEW: update OpenSSL status label based on current path
+function Update-OpenSslStatusLabel {
+    $path = $txtOpenSsl.Text
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        $lblOpenSslStatus.ForeColor = [System.Drawing.Color]::DarkRed
+        $lblOpenSslStatus.Text = "OpenSSL is required. Please browse to openssl.exe."
+        return
+    }
+
+    if (Test-Path $path) {
+        $lblOpenSslStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+        $lblOpenSslStatus.Text = "OpenSSL detected at: $path"
+    } else {
+        $lblOpenSslStatus.ForeColor = [System.Drawing.Color]::DarkRed
+        $lblOpenSslStatus.Text = "OpenSSL.exe not found at the specified path. Please browse to a valid openssl.exe."
     }
 }
 
@@ -801,6 +828,7 @@ $btnBrowseOpenSsl.Add_Click({
     if ($dlg.ShowDialog() -eq "OK") {
         $txtOpenSsl.Text = $dlg.FileName
         Write-Status "OpenSSL path set to: $($dlg.FileName)"
+        Update-OpenSslStatusLabel
     }
 })
 
@@ -881,6 +909,7 @@ $btnExport.Add_Click({
 
         $openSslPath = $txtOpenSsl.Text
         if ([string]::IsNullOrWhiteSpace($openSslPath) -or -not (Test-Path $openSslPath)) {
+            Update-OpenSslStatusLabel
             [System.Windows.Forms.MessageBox]::Show(
                 "OpenSSL.exe not found. Please set the OpenSSL path.",
                 "OpenSSL missing",
@@ -973,6 +1002,7 @@ $btnConvertExisting.Add_Click({
 
         $openSslPath = $txtOpenSsl.Text
         if ([string]::IsNullOrWhiteSpace($openSslPath) -or -not (Test-Path $openSslPath)) {
+            Update-OpenSslStatusLabel
             [System.Windows.Forms.MessageBox]::Show(
                 "OpenSSL.exe not found. Please set the OpenSSL path.",
                 "OpenSSL missing",
@@ -1047,8 +1077,21 @@ $btnConvertExisting.Add_Click({
 # ----------------------------
 # Startup
 # ----------------------------
-$autoOpenSsl = Get-OpenSslPath
-if ($autoOpenSsl) { $txtOpenSsl.Text = $autoOpenSsl }
+# 1) Explicit check for default OpenSSL location
+$defaultOpenSsl = "C:\Program Files\OpenSSL-Win64\bin\openssl.exe"
+if (Test-Path $defaultOpenSsl) {
+    $txtOpenSsl.Text = $defaultOpenSsl
+    Write-Log "OpenSSL found at default location: $defaultOpenSsl" "INFO"
+} else {
+    # 2) Fallback: generic detection (PATH, Git, etc.)
+    $autoOpenSsl = Get-OpenSslPath
+    if ($autoOpenSsl) {
+        $txtOpenSsl.Text = $autoOpenSsl
+    }
+}
+
+# Update warning/info label according to whatever path we ended up with
+Update-OpenSslStatusLabel
 
 Load-CertList
 [void]$form.ShowDialog()
