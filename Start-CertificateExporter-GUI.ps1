@@ -19,20 +19,18 @@
          - <name>-chain.cer
          - <name>-fullchain.cer
       5) Can also convert an existing PFX to the same set
-      6) New in 1.18: Export Selected → Linux PEM files (uses a temporary PFX behind the scenes)
+      6) Export Selected → Linux PEM files (uses a temporary PFX behind the scenes)
 
 .NOTES
     Recommended to run as Administrator if exporting from LocalMachine\My.
 
 .VERSION
-    1.18 - Added "Export Selected → Linux PEM files" action.
-           Uses a temporary PFX file (auto-cleaned) to generate Linux outputs.
-           Fixed OpenSSL call bug for chain export.
-           Retains default OpenSSL path check and status label.
+    1.19 - UI tweak: all four export buttons are now on a single line under Refresh.
+           Retains OpenSSL default-path check and status label.
            Tool name: CertificateExporter, script name: Start-CertificateExporter-GUI.ps1.
 
 .AUTHOR
-    Peter Schmidt (msdigest.net)
+    Peter
 
 .LAST UPDATED
     2025-12-10
@@ -45,7 +43,7 @@ Add-Type -AssemblyName System.Drawing
 # Configuration
 # ----------------------------
 $ScriptName    = "CertificateExporter"
-$ScriptVersion = "1.18"
+$ScriptVersion = "1.19"
 
 # Logs folder config
 $LogDir  = Join-Path (Get-Location).Path "Logs"
@@ -212,7 +210,7 @@ function Get-SafeExportPath {
 }
 
 # ----------------------------
-# Linux set collision handling (extensions per requirement)
+# Linux set collision handling
 # ----------------------------
 function Resolve-LinuxSetPaths {
     param(
@@ -603,13 +601,13 @@ $list.Size = New-Object System.Drawing.Size(910, 380)
     $col = New-Object System.Windows.Forms.ColumnHeader
     $col.Text = $_
     $col.Width = switch ($_) {
-        "Store" { 110 }
+        "Store"        { 110 }
         "FriendlyName" { 170 }
-        "Subject" { 230 }
-        "Thumbprint" { 240 }
-        "Expires" { 110 }
-        "HasPrivateKey" { 90 }
-        default { 120 }
+        "Subject"      { 230 }
+        "Thumbprint"   { 240 }
+        "Expires"      { 110 }
+        "HasPrivateKey"{ 90 }
+        default        { 120 }
     }
     $list.Columns.Add($col) | Out-Null
 }
@@ -640,42 +638,43 @@ $lblOpenSslStatus.ForeColor = [System.Drawing.Color]::DarkRed
 $lblOpenSslStatus.Text = ""
 $form.Controls.Add($lblOpenSslStatus)
 
-# Row 1 buttons
+# ----------------------------
+# Buttons - one line under Refresh
+# ----------------------------
 $btnRefresh = New-Object System.Windows.Forms.Button
 $btnRefresh.Text = "Refresh List"
 $btnRefresh.Location = New-Object System.Drawing.Point(12, 490)
-$btnRefresh.Size = New-Object System.Drawing.Size(120, 35)
+$btnRefresh.Size = New-Object System.Drawing.Size(110, 35)
 $form.Controls.Add($btnRefresh)
 
 $btnExportPfxOnly = New-Object System.Windows.Forms.Button
-$btnExportPfxOnly.Text = "Export Selected → PFX only"
-$btnExportPfxOnly.Location = New-Object System.Drawing.Point(140, 490)
-$btnExportPfxOnly.Size = New-Object System.Drawing.Size(200, 35)
+$btnExportPfxOnly.Text = "Export → PFX only"
+$btnExportPfxOnly.Location = New-Object System.Drawing.Point(130, 490)
+$btnExportPfxOnly.Size = New-Object System.Drawing.Size(180, 35)
 $form.Controls.Add($btnExportPfxOnly)
 
 $btnExportLinuxOnly = New-Object System.Windows.Forms.Button
-$btnExportLinuxOnly.Text = "Export Selected → Linux PEM files"
-$btnExportLinuxOnly.Location = New-Object System.Drawing.Point(350, 490)
-$btnExportLinuxOnly.Size = New-Object System.Drawing.Size(270, 35)
+$btnExportLinuxOnly.Text = "Export → Linux PEM files"
+$btnExportLinuxOnly.Location = New-Object System.Drawing.Point(320, 490)
+$btnExportLinuxOnly.Size = New-Object System.Drawing.Size(180, 35)
 $form.Controls.Add($btnExportLinuxOnly)
 
-# Row 2 buttons
 $btnExport = New-Object System.Windows.Forms.Button
-$btnExport.Text = "Export Selected → PFX → Linux files"
-$btnExport.Location = New-Object System.Drawing.Point(12, 530)
-$btnExport.Size = New-Object System.Drawing.Size(270, 35)
+$btnExport.Text = "Export → PFX + Linux files"
+$btnExport.Location = New-Object System.Drawing.Point(510, 490)
+$btnExport.Size = New-Object System.Drawing.Size(180, 35)
 $form.Controls.Add($btnExport)
 
 $btnConvertExisting = New-Object System.Windows.Forms.Button
-$btnConvertExisting.Text = "Convert Existing PFX → Linux files"
-$btnConvertExisting.Location = New-Object System.Drawing.Point(300, 530)
-$btnConvertExisting.Size = New-Object System.Drawing.Size(292, 35)
+$btnConvertExisting.Text = "Convert PFX → Linux files"
+$btnConvertExisting.Location = New-Object System.Drawing.Point(700, 490)
+$btnConvertExisting.Size = New-Object System.Drawing.Size(220, 35)
 $form.Controls.Add($btnConvertExisting)
 
 $lblNamingRules = New-Object System.Windows.Forms.Label
 $lblNamingRules.AutoSize = $false
 $lblNamingRules.Size = New-Object System.Drawing.Size(910, 50)
-$lblNamingRules.Location = New-Object System.Drawing.Point(12, 570)
+$lblNamingRules.Location = New-Object System.Drawing.Point(12, 535)
 $lblNamingRules.ForeColor = [System.Drawing.Color]::DimGray
 $lblNamingRules.Text =
     "Linux export naming rules: Folder = Common Name (CN). " +
@@ -684,7 +683,7 @@ $lblNamingRules.Text =
 $form.Controls.Add($lblNamingRules)
 
 $progress = New-Object System.Windows.Forms.ProgressBar
-$progress.Location = New-Object System.Drawing.Point(12, 620)
+$progress.Location = New-Object System.Drawing.Point(12, 585)
 $progress.Size = New-Object System.Drawing.Size(910, 18)
 $progress.Minimum = 0
 $progress.Maximum = 100
@@ -694,22 +693,22 @@ $form.Controls.Add($progress)
 $lblProgress = New-Object System.Windows.Forms.Label
 $lblProgress.Text = "Idle."
 $lblProgress.AutoSize = $true
-$lblProgress.Location = New-Object System.Drawing.Point(12, 642)
+$lblProgress.Location = New-Object System.Drawing.Point(12, 607)
 $form.Controls.Add($lblProgress)
 
 $txtStatus = New-Object System.Windows.Forms.TextBox
 $txtStatus.Multiline = $true
 $txtStatus.ReadOnly = $true
 $txtStatus.ScrollBars = "Vertical"
-$txtStatus.Location = New-Object System.Drawing.Point(12, 665)
-$txtStatus.Size = New-Object System.Drawing.Size(910, 80)
+$txtStatus.Location = New-Object System.Drawing.Point(12, 630)
+$txtStatus.Size = New-Object System.Drawing.Size(910, 90)
 $form.Controls.Add($txtStatus)
 
 $lblFooter = New-Object System.Windows.Forms.Label
 $lblFooter.Text = "$ScriptName v$ScriptVersion"
 $lblFooter.AutoSize = $true
 $lblFooter.ForeColor = [System.Drawing.Color]::Gray
-$lblFooter.Location = New-Object System.Drawing.Point(12, 755)
+$lblFooter.Location = New-Object System.Drawing.Point(12, 730)
 $form.Controls.Add($lblFooter)
 
 # ----------------------------
@@ -911,7 +910,7 @@ $btnExportPfxOnly.Add_Click({
     }
 })
 
-# NEW: Export Selected → Linux PEM files (temp PFX)
+# Export Selected → Linux PEM files (temp PFX)
 $btnExportLinuxOnly.Add_Click({
     Set-UiBusy -Busy $true
     $tempPfx = $null
@@ -944,7 +943,6 @@ $btnExportLinuxOnly.Add_Click({
             return
         }
 
-        # Determine export folder based on CN
         $fallback   = if ($selected.FriendlyName) { $selected.FriendlyName } else { $selected.Thumbprint }
         $folderName = Get-FolderNameForCert -CertObject $selected -FallbackName $fallback
         $exportDir  = Ensure-ExportFolder -FolderName $folderName
@@ -953,7 +951,6 @@ $btnExportLinuxOnly.Add_Click({
         $baseName = Remove-InvalidFileNameChars -Name $folderName
         if (-not $baseName) { $baseName = "export" }
 
-        # Create temp PFX in %TEMP%
         $tempDir = [IO.Path]::GetTempPath()
         $tempPfx = Join-Path $tempDir ("{0}.pfx" -f $baseName)
         Write-Log "Using temporary PFX for Linux-only export: $tempPfx" "DEBUG"
